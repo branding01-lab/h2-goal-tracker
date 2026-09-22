@@ -339,6 +339,12 @@ const firebaseConfig = {
   appId: "1:1088233168204:web:59502144b350dac599c3e9"
 };
 
+function showBanner(html){
+  const b = document.getElementById('configBanner');
+  b.innerHTML = html;
+  b.style.display = 'block';
+}
+
 const CONFIG_IS_SET = !JSON.stringify(firebaseConfig).includes('YOUR_');
 let dbRef = null;
 
@@ -348,9 +354,10 @@ if (CONFIG_IS_SET){
     dbRef = firebase.database().ref(STORAGE_KEY);
   }catch(e){
     console.error('Firebase 初始化失敗', e);
+    showBanner('⚠️ Firebase 初始化失敗：<code>' + (e && e.message ? e.message : e) + '</code>　請把這段文字截圖給協助你的人。');
   }
 } else {
-  document.getElementById('configBanner').style.display = 'block';
+  showBanner('⚠️ 尚未連接資料庫。請依照說明填入 Firebase 設定（找到程式碼裡的 <code>firebaseConfig</code>），填好後儲存的資料才會讓所有打開此頁面的人同步看到。目前僅能在此瀏覽器暫存，重新整理會消失。');
 }
 
 const DEFAULT_DATA = () => {
@@ -372,6 +379,7 @@ async function loadData(){
       return fresh;
     }catch(e){
       console.error('Firebase 讀取失敗', e);
+      showBanner('⚠️ 讀取資料庫失敗：<code>' + (e && e.message ? e.message : e) + '</code>　請把這段文字截圖給協助你的人（常見原因：規則未發佈、databaseURL 打錯、網路擋住 firebaseio.com）。');
     }
   }
   if (!localFallback) localFallback = DEFAULT_DATA();
@@ -387,12 +395,16 @@ async function saveData(data){
   if (dbRef){
     try{
       await dbRef.set(data);
-      return;
+      document.getElementById('configBanner').style.display = 'none';
+      return true;
     }catch(e){
       console.error('Firebase 儲存失敗', e);
+      showBanner('⚠️ 儲存資料庫失敗：<code>' + (e && e.message ? e.message : e) + '</code>　請把這段文字截圖給協助你的人（常見原因：規則未發佈、databaseURL 打錯、網路擋住 firebaseio.com）。');
+      return false;
     }
   }
   localFallback = data; // fallback: only persists for this browser tab session
+  return CONFIG_IS_SET ? false : true; // if config was set but dbRef never got created, treat as failure
 }
 
 function labelStyle(clampedPct){
@@ -526,10 +538,11 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   });
   const today = new Date();
   data.updatedAt = today.toISOString().slice(0,10);
-  await saveData(data);
+  const ok = await saveData(data);
   const status = document.getElementById('saveStatus');
-  status.textContent = '✓ 已儲存';
-  setTimeout(() => status.textContent = '', 2000);
+  status.textContent = ok ? '✓ 已儲存' : '✗ 儲存失敗，請看上方錯誤訊息';
+  status.style.color = ok ? 'var(--positive)' : 'var(--negative)';
+  setTimeout(() => status.textContent = '', ok ? 2000 : 6000);
   render();
 });
 
