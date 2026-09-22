@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2026 下半年度目標追蹤</title>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<style>
+  :root{
+    --bg: #0B1120;
+    --surface: #131B2E;
+    --surface-2: #182238;
+    --border: #22304A;
+    --text: #E7ECF5;
+    --muted: #8794AC;
+    --community: #FF7A59;
+    --community-dim: #4A3226;
+    --search: #45D9C6;
+    --search-dim: #1F3A38;
+    --positive: #6EE7A8;
+    --negative: #F87171;
+    --mono: 'JetBrains Mono','SF Mono',Consolas,monospace;
+    --sans: 'Noto Sans TC','PingFang TC','Microsoft JhengHei',-apple-system,BlinkMacSystemFont,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, #16233d 0%, transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, #182b2a 0%, transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    padding:32px 20px 80px;
+    min-height:100vh;
+  }
+  .wrap{max-width:920px;margin:0 auto;}
+
+  header.page{margin-bottom:28px;}
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.18em;
+    color:var(--muted);
+    text-transform:uppercase;
+    margin-bottom:10px;
+  }
+  h1{
+    font-size:clamp(26px,4vw,36px);
+    margin:0 0 6px;
+    font-weight:700;
+    letter-spacing:-0.01em;
+  }
+  .sub{color:var(--muted); font-size:14px;}
+  #lastUpdated{font-family:var(--mono); color:var(--muted); font-size:12.5px; margin-top:10px;}
+
+  .overview{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+    margin:24px 0 32px;
+  }
+  @media (max-width:600px){ .overview{grid-template-columns:1fr;} }
+  .dial-card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:20px 22px;
+    display:flex;
+    align-items:center;
+    gap:18px;
+  }
+  .dial-card.community{border-color:var(--community-dim);}
+  .dial-card.search{border-color:var(--search-dim);}
+  .dial{position:relative; width:74px; height:74px; flex:none;}
+  .dial svg{transform:rotate(-90deg);}
+  .dial-num{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-weight:700; font-size:16px;
+  }
+  .dial-label{font-size:14px; font-weight:600;}
+  .dial-sub{font-size:12px; color:var(--muted); margin-top:2px;}
+
+  section.group{margin-bottom:34px;}
+  .group-head{
+    display:flex; align-items:baseline; gap:10px;
+    margin-bottom:14px;
+    padding-bottom:10px;
+    border-bottom:1px solid var(--border);
+  }
+  .group-tag{
+    width:8px;height:8px;border-radius:50%;
+    display:inline-block;
+  }
+  .group-tag.community{background:var(--community);}
+  .group-tag.search{background:var(--search);}
+  .group-title{font-size:16px; font-weight:700; letter-spacing:.01em;}
+  .group-desc{font-size:12.5px; color:var(--muted);}
+
+  .metric{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:18px 20px;
+    margin-bottom:12px;
+  }
+  .metric-top{
+    display:flex; justify-content:space-between; align-items:flex-start;
+    gap:12px; margin-bottom:14px; flex-wrap:wrap;
+  }
+  .metric-name{font-size:14.5px; font-weight:600;}
+  .metric-goal{font-size:12px; color:var(--muted); margin-top:3px;}
+  .metric-values{
+    display:flex; align-items:baseline; gap:8px; font-family:var(--mono);
+  }
+  .metric-current-input{
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:18px;
+    font-weight:700;
+    width:90px;
+    padding:5px 8px;
+    border-radius:8px;
+    text-align:right;
+  }
+  .metric-current-input:focus{outline:2px solid var(--search); border-color:var(--search);}
+  .metric-target{font-size:13px; color:var(--muted);}
+  .metric-delta{font-size:11.5px; font-family:var(--mono); margin-top:4px;}
+  .metric-delta.up{color:var(--positive);}
+  .metric-delta.down{color:var(--negative);}
+
+  .track-wrap{
+    margin-top:26px;
+    position:relative;
+  }
+  .track{
+    position:relative;
+    height:10px;
+    background:var(--surface-2);
+    border-radius:999px;
+    overflow:visible;
+  }
+  .track-fill{
+    position:absolute; left:0; top:0; height:100%;
+    border-radius:999px;
+    transition:width .5s ease;
+  }
+  .track-start{
+    position:absolute; top:-3px; width:2px; height:16px;
+    background:var(--muted); opacity:.5;
+  }
+  .track-pct{
+    position:absolute; top:-22px;
+    font-family:var(--mono); font-size:11px; font-weight:700;
+    white-space:nowrap;
+  }
+
+  .footer-actions{
+    display:flex; gap:10px; align-items:center; margin-top:26px; flex-wrap:wrap;
+  }
+  button#saveBtn{
+    background:var(--search);
+    color:#062421;
+    border:none;
+    font-weight:700;
+    font-size:14px;
+    padding:11px 22px;
+    border-radius:10px;
+    cursor:pointer;
+    font-family:var(--sans);
+  }
+  button#saveBtn:hover{filter:brightness(1.08);}
+  button#resetBtn{
+    background:transparent;
+    color:var(--muted);
+    border:1px solid var(--border);
+    font-size:13px;
+    padding:10px 16px;
+    border-radius:10px;
+    cursor:pointer;
+    font-family:var(--sans);
+  }
+  #saveStatus{font-size:12.5px; color:var(--positive); font-family:var(--mono);}
+
+  #configBanner{
+    display:none;
+    background:#2A1E14;
+    border:1px solid #6B4A1F;
+    color:#F4C77B;
+    font-size:13px;
+    padding:12px 16px;
+    border-radius:10px;
+    margin-bottom:20px;
+    line-height:1.6;
+  }
+  #configBanner code{
+    background:rgba(0,0,0,.25);
+    padding:1px 6px;
+    border-radius:4px;
+    font-family:var(--mono);
+  }
+
+  .notes-block{
+    margin-top:16px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+  }
+  @media (max-width:600px){ .notes-block{grid-template-columns:1fr;} }
+  .notes-field label{
+    display:block;
+    font-size:12px;
+    font-weight:700;
+    letter-spacing:.05em;
+    color:var(--muted);
+    text-transform:uppercase;
+    margin-bottom:6px;
+    font-family:var(--mono);
+  }
+  .notes-field textarea{
+    width:100%;
+    min-height:84px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:12px;
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:13.5px;
+    line-height:1.6;
+    padding:12px 14px;
+    resize:vertical;
+  }
+  .notes-field textarea:focus{outline:2px solid var(--search); border-color:var(--search);}
+  .notes-field.community textarea:focus{outline-color:var(--community); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="configBanner">
+    ⚠️ 尚未連接資料庫。請依照說明填入 Firebase 設定（找到程式碼裡的 <code>firebaseConfig</code>），填好後儲存的資料才會讓所有打開此頁面的人同步看到。目前僅能在此瀏覽器暫存，重新整理會消失。
+  </div>
+
+  <header class="page">
+    <div class="eyebrow">H2 2026 · Department OKR Tracker</div>
+    <h1>下半年度目標追蹤</h1>
+    <div class="sub">社群增長與搜尋市佔 — 輸入現值，自動計算達成進度</div>
+    <div id="lastUpdated">尚未載入資料...</div>
+    <div style="font-size:11.5px;color:var(--muted);font-family:var(--mono);margin-top:4px;">🔗 共用資料 — 任何打開此頁面連結的人都能查看與更新</div>
+  </header>
+
+  <div class="overview" id="overview"></div>
+
+  <section class="group" data-group="community">
+    <div class="group-head">
+      <span class="group-tag community"></span>
+      <span class="group-title">社群增長</span>
+      <span class="group-desc">Community Growth</span>
+    </div>
+    <div id="community-list"></div>
+    <div class="notes-block">
+      <div class="notes-field community">
+        <label>現況</label>
+        <textarea data-notes="community-status" placeholder="說明目前社群增長的整體現況..."></textarea>
+      </div>
+      <div class="notes-field community">
+        <label>Action</label>
+        <textarea data-notes="community-action" placeholder="列出接下來的行動方案..."></textarea>
+      </div>
+    </div>
+  </section>
+
+  <section class="group" data-group="search">
+    <div class="group-head">
+      <span class="group-tag search"></span>
+      <span class="group-title">搜尋市佔</span>
+      <span class="group-desc">Search Share of Voice</span>
+    </div>
+    <div id="search-list"></div>
+    <div class="notes-block">
+      <div class="notes-field search">
+        <label>現況</label>
+        <textarea data-notes="search-status" placeholder="說明目前搜尋市佔的整體現況..."></textarea>
+      </div>
+      <div class="notes-field search">
+        <label>Action</label>
+        <textarea data-notes="search-action" placeholder="列出接下來的行動方案..."></textarea>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer-actions">
+    <button id="saveBtn">儲存更新</button>
+    <button id="resetBtn">重設為初始基準</button>
+    <span id="saveStatus"></span>
+  </div>
+
+</div>
+
+<script>
+const STORAGE_KEY = 'h2-2026-metrics';
+
+const METRICS_CONFIG = [
+  { group:'community', key:'ig_followers', label:'Instagram 追蹤數', start:957, target:5000, defaultCurrent:1053, suffix:'' },
+  { group:'community', key:'ig_engagement', label:'Instagram 互動率', start:2.9, target:5, defaultCurrent:2.9, suffix:'%' },
+  { group:'community', key:'yt_subs', label:'YouTube 訂閱數', start:1770, target:10000, defaultCurrent:1910, suffix:'' },
+  { group:'community', key:'yt_engagement', label:'YouTube 互動率', start:2, target:5, defaultCurrent:2, suffix:'%' },
+  { group:'search', key:'visibility', label:'品牌能見度分數', start:22, target:26.4, defaultCurrent:26, suffix:'', goalNote:'目標成長 20%' },
+  { group:'search', key:'mentions', label:'提及數量', start:201, target:261.3, defaultCurrent:216, suffix:'', goalNote:'目標成長 30%（校正基準 201）' },
+  { group:'search', key:'citations', label:'引用數量', start:19, target:23.75, defaultCurrent:23, suffix:'', goalNote:'目標成長 25%' },
+  { group:'search', key:'awareness', label:'品牌認知度', start:49.7, target:59.64, defaultCurrent:49.7, suffix:'', goalNote:'目標成長 20%' },
+];
+
+function fmt(n){
+  if (Number.isInteger(n)) return n.toString();
+  return (Math.round(n*10)/10).toString();
+}
+
+function progressPct(start, target, current){
+  if (target === start) return 0;
+  const raw = (current - start) / (target - start) * 100;
+  return raw;
+}
+
+// ===== Firebase 設定 =====
+// 請到 Firebase 主控台 (console.firebase.google.com) 建立專案後，
+// 把「專案設定 → 你的應用程式 → SDK 設定」裡的物件貼到下面，取代整個 firebaseConfig。
+const firebaseConfig = {
+  apiKey: "AIzaSyCRcNh1Ry19oU8ic400zKDnWgiVZNpkWFY",
+  authDomain: "h2-goal-tracker-36d26.firebaseapp.com",
+  databaseURL: "https://h2-goal-tracker-36d26-default-rtdb.firebaseio.com",
+  projectId: "h2-goal-tracker-36d26",
+  storageBucket: "h2-goal-tracker-36d26.firebasestorage.app",
+  messagingSenderId: "1088233168204",
+  appId: "1:1088233168204:web:59502144b350dac599c3e9"
+};
+
+const CONFIG_IS_SET = !JSON.stringify(firebaseConfig).includes('YOUR_');
+let dbRef = null;
+
+if (CONFIG_IS_SET){
+  try{
+    firebase.initializeApp(firebaseConfig);
+    dbRef = firebase.database().ref(STORAGE_KEY);
+  }catch(e){
+    console.error('Firebase 初始化失敗', e);
+  }
+} else {
+  document.getElementById('configBanner').style.display = 'block';
+}
+
+const DEFAULT_DATA = () => {
+  const d = { updatedAt: '2026-07-28', values:{}, notes:{ 'community-status':'', 'community-action':'', 'search-status':'', 'search-action':'' } };
+  METRICS_CONFIG.forEach(m => d.values[m.key] = m.defaultCurrent);
+  return d;
+};
+
+let localFallback = null; // used only when Firebase isn't configured yet
+
+async function loadData(){
+  if (dbRef){
+    try{
+      const snapshot = await dbRef.once('value');
+      const val = snapshot.val();
+      if (val) return withNotes(val);
+      const fresh = DEFAULT_DATA();
+      await saveData(fresh);
+      return fresh;
+    }catch(e){
+      console.error('Firebase 讀取失敗', e);
+    }
+  }
+  if (!localFallback) localFallback = DEFAULT_DATA();
+  return withNotes(localFallback);
+}
+
+function withNotes(data){
+  if (!data.notes) data.notes = { 'community-status':'', 'community-action':'', 'search-status':'', 'search-action':'' };
+  return data;
+}
+
+async function saveData(data){
+  if (dbRef){
+    try{
+      await dbRef.set(data);
+      return;
+    }catch(e){
+      console.error('Firebase 儲存失敗', e);
+    }
+  }
+  localFallback = data; // fallback: only persists for this browser tab session
+}
+
+function labelStyle(clampedPct){
+  // keep label's anchor point within safe bounds and align edges inward
+  // so it never gets clipped or overlaps neighboring text at 0%/100%.
+  const pos = Math.max(4, Math.min(96, clampedPct));
+  let transform = 'translateX(-50%)';
+  if (pos <= 6) transform = 'translateX(0)';
+  else if (pos >= 94) transform = 'translateX(-100%)';
+  return `left:${pos}%; transform:${transform};`;
+}
+
+function renderPctLabel(clampedPct, rawPct, isNegative){
+  const style = labelStyle(clampedPct);
+  const color = isNegative ? 'var(--negative)' : 'var(--text)';
+  return `<div class="track-pct" style="${style} color:${color};">${Math.round(rawPct)}%</div>`;
+}
+
+function renderDial(container, groupKey, groupLabel, accentVar, avgPct){
+  const clamped = Math.max(0, Math.min(100, avgPct));
+  const r = 30, c = 2*Math.PI*r;
+  const offset = c - (clamped/100)*c;
+  const div = document.createElement('div');
+  div.className = 'dial-card ' + groupKey;
+  div.innerHTML = `
+    <div class="dial">
+      <svg width="74" height="74">
+        <circle cx="37" cy="37" r="${r}" fill="none" stroke="var(--border)" stroke-width="7"/>
+        <circle cx="37" cy="37" r="${r}" fill="none" stroke="${accentVar}" stroke-width="7"
+          stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+      </svg>
+      <div class="dial-num">${Math.round(avgPct)}%</div>
+    </div>
+    <div>
+      <div class="dial-label">${groupLabel}</div>
+      <div class="dial-sub">平均達成進度</div>
+    </div>
+  `;
+  container.appendChild(div);
+}
+
+async function render(){
+  const data = await loadData();
+  const overview = document.getElementById('overview');
+  overview.innerHTML = '';
+  document.getElementById('community-list').innerHTML = '';
+  document.getElementById('search-list').innerHTML = '';
+  document.getElementById('lastUpdated').textContent = `最後更新：${data.updatedAt}`;
+
+  document.querySelectorAll('textarea[data-notes]').forEach(ta => {
+    ta.value = data.notes[ta.dataset.notes] || '';
+  });
+
+  const groupPcts = { community: [], search: [] };
+
+  METRICS_CONFIG.forEach(m => {
+    const current = (data.values[m.key] !== undefined) ? data.values[m.key] : m.defaultCurrent;
+    const pct = progressPct(m.start, m.target, current);
+    groupPcts[m.group].push(Math.max(0, Math.min(100, pct)));
+
+    const isNegative = current < m.start;
+    const clampedPct = Math.max(0, Math.min(100, pct));
+    const accent = m.group === 'community' ? 'var(--community)' : 'var(--search)';
+    const startMarkerPos = 0; // start is always left edge of the bar reference
+
+    const el = document.createElement('div');
+    el.className = 'metric';
+    el.innerHTML = `
+      <div class="metric-top">
+        <div>
+          <div class="metric-name">${m.label}</div>
+          <div class="metric-goal">起始 ${fmt(m.start)}${m.suffix} → 目標 ${fmt(m.target)}${m.suffix}${m.goalNote ? ' · ' + m.goalNote : ''}</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="metric-values">
+            <input type="number" step="any" class="metric-current-input" data-key="${m.key}" value="${current}">
+            <span class="metric-target">/ ${fmt(m.target)}${m.suffix}</span>
+          </div>
+          <div class="metric-delta ${isNegative ? 'down' : 'up'}">
+            ${isNegative ? '▼' : '▲'} ${isNegative ? '' : '+'}${fmt(current - m.start)}${m.suffix} 相較起始值
+          </div>
+        </div>
+      </div>
+      <div class="track-wrap">
+        <div class="track">
+          <div class="track-fill" style="width:${clampedPct}%; background:${isNegative ? 'var(--negative)' : accent};"></div>
+        </div>
+        ${renderPctLabel(clampedPct, pct, isNegative)}
+      </div>
+    `;
+    document.getElementById(m.group + '-list').appendChild(el);
+  });
+
+  const avg = (arr) => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
+  renderDial(overview, 'community', '社群增長', 'var(--community)', avg(groupPcts.community));
+  renderDial(overview, 'search', '搜尋市佔', 'var(--search)', avg(groupPcts.search));
+
+  // wire up inputs to re-render deltas live (not saved until button pressed)
+  document.querySelectorAll('.metric-current-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const key = inp.dataset.key;
+      const m = METRICS_CONFIG.find(x => x.key === key);
+      const val = parseFloat(inp.value);
+      if (isNaN(val)) return;
+      const pct = progressPct(m.start, m.target, val);
+      const clamped = Math.max(0, Math.min(100, pct));
+      const metricEl = inp.closest('.metric');
+      const fill = metricEl.querySelector('.track-fill');
+      const pctLabel = metricEl.querySelector('.track-pct');
+      const deltaEl = metricEl.querySelector('.metric-delta');
+      const isNeg = val < m.start;
+      const accent = m.group === 'community' ? 'var(--community)' : 'var(--search)';
+      fill.style.width = clamped + '%';
+      fill.style.background = isNeg ? 'var(--negative)' : accent;
+      pctLabel.setAttribute('style', labelStyle(clamped) + ` color:${isNeg ? 'var(--negative)' : 'var(--text)'};`);
+      pctLabel.textContent = Math.round(pct) + '%';
+      deltaEl.className = 'metric-delta ' + (isNeg ? 'down' : 'up');
+      deltaEl.textContent = `${isNeg ? '▼' : '▲'} ${isNeg ? '' : '+'}${fmt(val - m.start)}${m.suffix} 相較起始值`;
+    });
+  });
+}
+
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  const data = await loadData();
+  document.querySelectorAll('.metric-current-input').forEach(inp => {
+    const val = parseFloat(inp.value);
+    if (!isNaN(val)) data.values[inp.dataset.key] = val;
+  });
+  document.querySelectorAll('textarea[data-notes]').forEach(ta => {
+    data.notes[ta.dataset.notes] = ta.value;
+  });
+  const today = new Date();
+  data.updatedAt = today.toISOString().slice(0,10);
+  await saveData(data);
+  const status = document.getElementById('saveStatus');
+  status.textContent = '✓ 已儲存';
+  setTimeout(() => status.textContent = '', 2000);
+  render();
+});
+
+document.getElementById('resetBtn').addEventListener('click', async () => {
+  const data = DEFAULT_DATA();
+  await saveData(data);
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
