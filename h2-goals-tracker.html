@@ -6,6 +6,7 @@
 <title>2026 下半年度目標追蹤</title>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
   :root{
     --bg: #0B1120;
@@ -236,6 +237,99 @@
   }
   .notes-field textarea:focus{outline:2px solid var(--search); border-color:var(--search);}
   .notes-field.community textarea:focus{outline-color:var(--community); }
+
+  .chart-card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:18px 20px 8px;
+    margin-bottom:16px;
+  }
+  .chart-card h3{
+    margin:0 0 4px;
+    font-size:13.5px;
+    font-weight:700;
+  }
+  .chart-card .chart-note{
+    font-size:11px;
+    color:var(--muted);
+    margin-bottom:10px;
+  }
+  .chart-card canvas{max-height:260px;}
+  .chart-canvas-wrap{position:relative; height:260px;}
+  .chart-empty{
+    color:var(--muted);
+    font-size:12.5px;
+    text-align:center;
+    padding:24px 0;
+  }
+
+  .history-toggle{
+    display:inline-flex; align-items:center; gap:6px;
+    background:transparent;
+    border:1px solid var(--border);
+    color:var(--muted);
+    font-size:12.5px;
+    padding:8px 14px;
+    border-radius:9px;
+    cursor:pointer;
+    font-family:var(--sans);
+    margin-top:14px;
+  }
+  .history-toggle:hover{color:var(--text); border-color:var(--muted);}
+  .history-toggle .chevron{transition:transform .2s ease; display:inline-block;}
+  .history-toggle.open .chevron{transform:rotate(180deg);}
+
+  .history-panel{
+    display:none;
+    margin-top:12px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    overflow:hidden;
+  }
+  .history-panel.open{display:block;}
+  .history-table-wrap{overflow-x:auto;}
+  table.history-table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:12px;
+    font-family:var(--mono);
+    white-space:nowrap;
+  }
+  table.history-table th, table.history-table td{
+    padding:9px 12px;
+    text-align:right;
+    border-bottom:1px solid var(--border);
+  }
+  table.history-table th:first-child, table.history-table td:first-child{
+    text-align:left;
+    color:var(--muted);
+    font-family:var(--sans);
+  }
+  table.history-table thead th{
+    background:var(--surface-2);
+    color:var(--muted);
+    font-weight:700;
+    font-size:11px;
+  }
+  .history-del-btn{
+    background:transparent;
+    border:1px solid var(--border);
+    color:var(--negative);
+    font-size:11px;
+    padding:4px 9px;
+    border-radius:7px;
+    cursor:pointer;
+    font-family:var(--sans);
+  }
+  .history-del-btn:hover{background:rgba(248,113,113,.12);}
+  .history-empty{
+    padding:18px;
+    text-align:center;
+    color:var(--muted);
+    font-size:12.5px;
+    font-family:var(--sans);
+  }
 </style>
 </head>
 <body>
@@ -261,6 +355,12 @@
       <span class="group-title">社群增長</span>
       <span class="group-desc">Community Growth</span>
     </div>
+    <div class="chart-card">
+      <h3>社群增長趨勢</h3>
+      <div class="chart-note">左軸：追蹤數／訂閱數（數量）　右軸：互動率（%）</div>
+      <div class="chart-canvas-wrap"><canvas id="chart-community"></canvas></div>
+      <div class="chart-empty" id="chart-empty-community" style="display:none;">尚無歷史紀錄，儲存過一次後會開始累積曲線圖資料</div>
+    </div>
     <div id="community-list"></div>
     <div class="notes-block">
       <div class="notes-field community">
@@ -272,6 +372,12 @@
         <textarea data-notes="community-action" placeholder="列出接下來的行動方案..."></textarea>
       </div>
     </div>
+    <button class="history-toggle" data-history-toggle="community">
+      <span class="chevron">▾</span> 歷史紀錄
+    </button>
+    <div class="history-panel" id="history-panel-community">
+      <div class="history-table-wrap" id="history-table-community"></div>
+    </div>
   </section>
 
   <section class="group" data-group="search">
@@ -279,6 +385,12 @@
       <span class="group-tag search"></span>
       <span class="group-title">搜尋市佔</span>
       <span class="group-desc">Search Share of Voice</span>
+    </div>
+    <div class="chart-card">
+      <h3>搜尋市佔趨勢</h3>
+      <div class="chart-note">左軸：提及數量　右軸：品牌能見度／引用數量／品牌認知度</div>
+      <div class="chart-canvas-wrap"><canvas id="chart-search"></canvas></div>
+      <div class="chart-empty" id="chart-empty-search" style="display:none;">尚無歷史紀錄，儲存過一次後會開始累積曲線圖資料</div>
     </div>
     <div id="search-list"></div>
     <div class="notes-block">
@@ -291,11 +403,18 @@
         <textarea data-notes="search-action" placeholder="列出接下來的行動方案..."></textarea>
       </div>
     </div>
+    <button class="history-toggle" data-history-toggle="search">
+      <span class="chevron">▾</span> 歷史紀錄
+    </button>
+    <div class="history-panel" id="history-panel-search">
+      <div class="history-table-wrap" id="history-table-search"></div>
+    </div>
   </section>
 
   <div class="footer-actions">
     <button id="saveBtn">儲存更新</button>
     <button id="resetBtn">重設為初始基準</button>
+    <button id="seedBtn" style="background:transparent;color:var(--search);border:1px solid var(--search-dim);font-size:13px;padding:10px 16px;border-radius:10px;cursor:pointer;font-family:var(--sans);">匯入 8–9 月歷史資料</button>
     <span id="saveStatus"></span>
   </div>
 
@@ -303,16 +422,22 @@
 
 <script>
 const STORAGE_KEY = 'h2-2026-metrics';
+const HISTORY_KEY = 'h2-2026-history';
+
+// 刪除歷史紀錄時要求輸入的密碼。這不是真正的安全機制（程式碼是公開的，
+// 懂技術的人看原始碼就能找到），只是防止誤刪的一道確認關卡。
+// 想更換密碼，直接把下面雙引號中間的文字換掉即可。
+const DELETE_PASSWORD = "H2goal2026";
 
 const METRICS_CONFIG = [
-  { group:'community', key:'ig_followers', label:'Instagram 追蹤數', start:957, target:5000, defaultCurrent:1053, suffix:'' },
-  { group:'community', key:'ig_engagement', label:'Instagram 互動率', start:2.9, target:5, defaultCurrent:2.9, suffix:'%' },
-  { group:'community', key:'yt_subs', label:'YouTube 訂閱數', start:1770, target:10000, defaultCurrent:1910, suffix:'' },
-  { group:'community', key:'yt_engagement', label:'YouTube 互動率', start:2, target:5, defaultCurrent:2, suffix:'%' },
-  { group:'search', key:'visibility', label:'品牌能見度分數', start:22, target:26.4, defaultCurrent:26, suffix:'', goalNote:'目標成長 20%' },
-  { group:'search', key:'mentions', label:'提及數量', start:201, target:261.3, defaultCurrent:216, suffix:'', goalNote:'目標成長 30%（校正基準 201）' },
-  { group:'search', key:'citations', label:'引用數量', start:19, target:23.75, defaultCurrent:23, suffix:'', goalNote:'目標成長 25%' },
-  { group:'search', key:'awareness', label:'品牌認知度', start:49.7, target:59.64, defaultCurrent:49.7, suffix:'', goalNote:'目標成長 20%' },
+  { group:'community', key:'ig_followers', label:'Instagram 追蹤數', start:957, target:5000, defaultCurrent:3168, suffix:'', axis:'left', color:'#FF7A59' },
+  { group:'community', key:'ig_engagement', label:'Instagram 互動率', start:2.85, target:5, defaultCurrent:4.1, suffix:'%', axis:'right', color:'#4DD0E1', goalNote:'區間累積(讚+留言+分享)/總觀看數，不含追蹤人數；起始基準為 2026/01/01–06/30' },
+  { group:'community', key:'yt_subs', label:'YouTube 訂閱數', start:1770, target:10000, defaultCurrent:4170, suffix:'', axis:'left', color:'#FFC15E' },
+  { group:'community', key:'yt_engagement', label:'YouTube 互動率', start:2, target:5, defaultCurrent:2, suffix:'%', axis:'right', color:'#B388FF' },
+  { group:'search', key:'visibility', label:'品牌能見度分數', start:22, target:26.4, defaultCurrent:20, suffix:'', goalNote:'目標成長 20%', axis:'right', color:'#7ED957' },
+  { group:'search', key:'mentions', label:'提及數量', start:201, target:261.3, defaultCurrent:256, suffix:'', goalNote:'目標成長 30%（校正基準 201）', axis:'left', color:'#45D9C6' },
+  { group:'search', key:'citations', label:'引用數量', start:19, target:23.75, defaultCurrent:82, suffix:'', goalNote:'目標成長 25%', axis:'right', color:'#FFD166' },
+  { group:'search', key:'awareness', label:'品牌認知度', start:49.7, target:59.64, defaultCurrent:60, suffix:'', goalNote:'目標成長 20%', axis:'right', color:'#EF476F' },
 ];
 
 function fmt(n){
@@ -347,11 +472,13 @@ function showBanner(html){
 
 const CONFIG_IS_SET = !JSON.stringify(firebaseConfig).includes('YOUR_');
 let dbRef = null;
+let historyRef = null;
 
 if (CONFIG_IS_SET){
   try{
     firebase.initializeApp(firebaseConfig);
     dbRef = firebase.database().ref(STORAGE_KEY);
+    historyRef = firebase.database().ref(HISTORY_KEY);
   }catch(e){
     console.error('Firebase 初始化失敗', e);
     showBanner('⚠️ Firebase 初始化失敗：<code>' + (e && e.message ? e.message : e) + '</code>　請把這段文字截圖給協助你的人。');
@@ -406,6 +533,211 @@ async function saveData(data){
   localFallback = data; // fallback: only persists for this browser tab session
   return CONFIG_IS_SET ? false : true; // if config was set but dbRef never got created, treat as failure
 }
+
+// ===== 歷史紀錄 =====
+
+async function pushHistoryEntry(values){
+  if (!historyRef) return;
+  try{
+    const entry = { ts: new Date().toISOString(), values: {...values} };
+    await historyRef.push(entry);
+  }catch(e){
+    console.error('新增歷史紀錄失敗', e);
+    showBanner('⚠️ 新增歷史紀錄失敗：<code>' + (e && e.message ? e.message : e) + '</code>');
+  }
+}
+
+async function loadHistory(){
+  if (!historyRef) return [];
+  try{
+    const snapshot = await historyRef.once('value');
+    const val = snapshot.val();
+    if (!val) return [];
+    return Object.keys(val)
+      .map(id => ({ id, ts: val[id].ts, values: val[id].values || {} }))
+      .sort((a,b) => new Date(a.ts) - new Date(b.ts));
+  }catch(e){
+    console.error('讀取歷史紀錄失敗', e);
+    return [];
+  }
+}
+
+async function deleteHistoryEntry(id){
+  const pwd = window.prompt('請輸入刪除密碼以確認刪除這筆歷史紀錄：');
+  if (pwd === null) return false; // cancelled
+  if (pwd !== DELETE_PASSWORD){
+    alert('密碼錯誤，未刪除。');
+    return false;
+  }
+  try{
+    await historyRef.child(id).remove();
+    return true;
+  }catch(e){
+    console.error('刪除歷史紀錄失敗', e);
+    alert('刪除失敗：' + (e && e.message ? e.message : e));
+    return false;
+  }
+}
+
+function fmtTs(iso){
+  try{
+    const d = new Date(iso);
+    return d.toLocaleString('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+  }catch(e){ return iso; }
+}
+
+function renderHistoryTable(group, history){
+  const wrap = document.getElementById('history-table-' + group);
+  const metrics = METRICS_CONFIG.filter(m => m.group === group);
+  if (!history.length){
+    wrap.innerHTML = '<div class="history-empty">尚無歷史紀錄</div>';
+    return;
+  }
+  const rows = [...history].reverse().map(entry => {
+    const cells = metrics.map(m => {
+      const v = entry.values[m.key];
+      return `<td>${v === undefined ? '—' : fmt(v) + m.suffix}</td>`;
+    }).join('');
+    return `<tr data-id="${entry.id}">
+      <td>${fmtTs(entry.ts)}</td>
+      ${cells}
+      <td><button class="history-del-btn" data-delete-id="${entry.id}" data-delete-group="${group}">刪除</button></td>
+    </tr>`;
+  }).join('');
+  const headerCells = metrics.map(m => `<th>${m.label}</th>`).join('');
+  wrap.innerHTML = `
+    <table class="history-table">
+      <thead><tr><th>時間</th>${headerCells}<th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+  wrap.querySelectorAll('[data-delete-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ok = await deleteHistoryEntry(btn.dataset.deleteId);
+      if (ok){
+        const history = await loadHistory();
+        renderHistoryTable(group, history);
+        renderChart(group, history);
+      }
+    });
+  });
+}
+
+let chartInstances = { community:null, search:null };
+
+function renderChart(group, history){
+  const canvas = document.getElementById('chart-' + group);
+  const wrapEl = canvas.closest('.chart-canvas-wrap');
+  const emptyEl = document.getElementById('chart-empty-' + group);
+  const metrics = METRICS_CONFIG.filter(m => m.group === group);
+
+  if (!history.length){
+    wrapEl.style.display = 'none';
+    emptyEl.style.display = 'block';
+    if (chartInstances[group]){ chartInstances[group].destroy(); chartInstances[group] = null; }
+    return;
+  }
+  wrapEl.style.display = 'block';
+  emptyEl.style.display = 'none';
+
+  const labels = history.map(h => fmtTs(h.ts));
+  const datasets = metrics.map(m => ({
+    label: m.label + (m.suffix ? ` (${m.suffix})` : ''),
+    data: history.map(h => h.values[m.key] !== undefined ? h.values[m.key] : null),
+    borderColor: m.color,
+    backgroundColor: m.color,
+    yAxisID: m.axis === 'right' ? 'y1' : 'y',
+    tension: 0.3,
+    spanGaps: true,
+    pointRadius: 3,
+  }));
+
+  if (chartInstances[group]) chartInstances[group].destroy();
+  chartInstances[group] = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { labels: { color: '#8794AC', font:{ size:11 } } },
+      },
+      scales: {
+        x: { ticks:{ color:'#8794AC', font:{size:10} }, grid:{ color:'#22304A' } },
+        y: { position:'left', ticks:{ color:'#8794AC', font:{size:10} }, grid:{ color:'#22304A' } },
+        y1: { position:'right', ticks:{ color:'#8794AC', font:{size:10} }, grid:{ drawOnChartArea:false } },
+      }
+    }
+  });
+}
+
+async function refreshHistoryAndCharts(){
+  const history = await loadHistory();
+  ['community','search'].forEach(group => {
+    const groupHistory = history; // filtering by metric happens inside render fns
+    renderHistoryTable(group, groupHistory);
+    renderChart(group, groupHistory);
+  });
+}
+
+// ===== 8–9 月歷史資料一次性匯入 =====
+// 用固定 key（不是隨機 push key）寫入，所以重複點擊按鈕不會產生重複紀錄，
+// 只會覆蓋同一筆，可放心多次執行。
+const SEED_HISTORY = [
+  { id:'seed-community-20260806', ts:'2026-08-06T12:00:00.000Z', values:{ ig_followers:1334, yt_subs:2110 } },
+  { id:'seed-community-20260812', ts:'2026-08-12T12:00:00.000Z', values:{ ig_followers:1598, yt_subs:2620 } },
+  { id:'seed-community-20260819', ts:'2026-08-19T12:00:00.000Z', values:{ ig_followers:1852, yt_subs:3200 } },
+  { id:'seed-community-20260826', ts:'2026-08-26T12:00:00.000Z', values:{ ig_followers:2081, yt_subs:3300 } },
+  { id:'seed-community-20260827', ts:'2026-08-27T12:00:00.000Z', values:{ ig_engagement:8.74 } },
+  { id:'seed-community-20260915', ts:'2026-09-15T12:00:00.000Z', values:{ ig_followers:2961, yt_subs:3860 } },
+  { id:'seed-community-20260922', ts:'2026-09-22T12:00:00.000Z', values:{ ig_followers:3213, ig_engagement:4.2, yt_subs:4080 } },
+  { id:'seed-community-20260927', ts:'2026-09-27T12:00:00.000Z', values:{ ig_engagement:4.1 } },
+  { id:'seed-community-20260929', ts:'2026-09-29T12:00:00.000Z', values:{ ig_followers:3168, yt_subs:4170 } },
+  { id:'seed-search-202606', ts:'2026-06-30T12:00:00.000Z', values:{ visibility:22, mentions:200, citations:19, awareness:49.66 } },
+  { id:'seed-search-202607', ts:'2026-07-31T12:00:00.000Z', values:{ visibility:23, mentions:214, citations:24, awareness:49.66 } },
+  { id:'seed-search-202608', ts:'2026-08-31T12:00:00.000Z', values:{ visibility:23, mentions:237, citations:66, awareness:60 } },
+  { id:'seed-search-202609', ts:'2026-09-29T12:00:00.000Z', values:{ visibility:20, mentions:256, citations:82, awareness:60 } },
+];
+
+const SEED_CURRENT_VALUES = {
+  ig_followers:3168, yt_subs:4170, ig_engagement:4.1,
+  visibility:20, mentions:256, citations:82, awareness:60,
+};
+
+document.getElementById('seedBtn').addEventListener('click', async () => {
+  if (!historyRef || !dbRef){
+    alert('尚未連接資料庫，無法匯入。請先完成 Firebase 設定。');
+    return;
+  }
+  const confirmMsg = '即將匯入 8–9 月歷史資料（' + SEED_HISTORY.length + ' 筆），並把現值更新為最新一筆資料。重複執行不會產生重複紀錄。確定要繼續嗎？';
+  if (!window.confirm(confirmMsg)) return;
+
+  const btn = document.getElementById('seedBtn');
+  btn.disabled = true;
+  btn.textContent = '匯入中...';
+
+  try{
+    // 寫入歷史紀錄（固定 key，冪等）
+    for (const entry of SEED_HISTORY){
+      await historyRef.child(entry.id).set({ ts: entry.ts, values: entry.values });
+    }
+    // 更新現值
+    const data = await loadData();
+    Object.assign(data.values, SEED_CURRENT_VALUES);
+    data.updatedAt = new Date().toISOString().slice(0,10);
+    await saveData(data);
+
+    btn.textContent = '✓ 已匯入';
+    render();
+    refreshHistoryAndCharts();
+  }catch(e){
+    console.error('匯入歷史資料失敗', e);
+    alert('匯入失敗：' + (e && e.message ? e.message : e));
+    btn.textContent = '匯入 8–9 月歷史資料';
+    btn.disabled = false;
+  }
+});
 
 function labelStyle(clampedPct){
   // keep label's anchor point within safe bounds and align edges inward
@@ -539,11 +871,13 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   const today = new Date();
   data.updatedAt = today.toISOString().slice(0,10);
   const ok = await saveData(data);
+  if (ok) await pushHistoryEntry(data.values);
   const status = document.getElementById('saveStatus');
   status.textContent = ok ? '✓ 已儲存' : '✗ 儲存失敗，請看上方錯誤訊息';
   status.style.color = ok ? 'var(--positive)' : 'var(--negative)';
   setTimeout(() => status.textContent = '', ok ? 2000 : 6000);
   render();
+  refreshHistoryAndCharts();
 });
 
 document.getElementById('resetBtn').addEventListener('click', async () => {
@@ -552,7 +886,17 @@ document.getElementById('resetBtn').addEventListener('click', async () => {
   render();
 });
 
+document.querySelectorAll('[data-history-toggle]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const group = btn.dataset.historyToggle;
+    const panel = document.getElementById('history-panel-' + group);
+    const isOpen = panel.classList.toggle('open');
+    btn.classList.toggle('open', isOpen);
+  });
+});
+
 render();
+refreshHistoryAndCharts();
 </script>
 </body>
 </html>
