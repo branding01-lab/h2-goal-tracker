@@ -600,18 +600,43 @@ const DEFAULT_DATA = () => {
 
 let localFallback = null; // used only when Firebase isn't configured yet
 
+let hasSeenRealData = false;
+
 async function loadData(){
   if (dbRef){
     try{
-      const snapshot = await dbRef.once('value');
-      const val = snapshot.val();
-      if (val) return withNotes(val);
-      const fresh = DEFAULT_DATA();
-      await saveData(fresh);
-      return fresh;
+      let snapshot = await dbRef.once('value');
+      let val = snapshot.val();
+
+      if (!val){
+        // 讀到空值有可能只是短暫的連線問題，稍等一下再讀一次，
+        // 避免誤判成「全新資料庫」而做出破壞性的覆蓋動作。
+        await new Promise(r => setTimeout(r, 500));
+        snapshot = await dbRef.once('value');
+        val = snapshot.val();
+      }
+
+      if (val){
+        hasSeenRealData = true;
+        return withNotes(val);
+      }
+
+      if (hasSeenRealData){
+        // 之前明明讀到過真實資料，這次卻讀到空的，非常可疑，
+        // 很可能是連線問題，不能就這樣覆蓋掉既有資料——直接中止。
+        showBanner('⚠️ 讀取資料庫時暫時讀不到資料（可能是網路不穩），為了避免覆蓋掉現有資料，這次操作已自動中止。請稍後重新整理頁面再試一次。');
+        throw new Error('資料庫讀取異常中止（曾有真實資料，這次卻讀到空值）');
+      }
+
+      // 真的是第一次使用、資料庫本來就是空的：只回傳預設值供畫面顯示，
+      // 不主動寫入資料庫，寫入動作交給使用者實際按下「儲存更新」時才發生。
+      return DEFAULT_DATA();
     }catch(e){
       console.error('Firebase 讀取失敗', e);
-      showBanner('⚠️ 讀取資料庫失敗：<code>' + (e && e.message ? e.message : e) + '</code>　請把這段文字截圖給協助你的人（常見原因：規則未發佈、databaseURL 打錯、網路擋住 firebaseio.com）。');
+      if (!/資料庫讀取異常中止/.test(e.message || '')){
+        showBanner('⚠️ 讀取資料庫失敗：<code>' + (e && e.message ? e.message : e) + '</code>　請把這段文字截圖給協助你的人（常見原因：規則未發佈、databaseURL 打錯、網路擋住 firebaseio.com）。');
+      }
+      throw e;
     }
   }
   if (!localFallback) localFallback = DEFAULT_DATA();
@@ -1124,7 +1149,13 @@ function renderDial(container, groupKey, groupLabel, accentVar, avgPct){
 }
 
 async function render(){
-  const data = await loadData();
+  let data;
+  try{
+    data = await loadData();
+  }catch(e){
+    console.error('render(): 讀取資料失敗，保留目前畫面內容不覆蓋', e);
+    return; // 讀取異常時保留畫面現有內容，不清空、不覆蓋
+  }
   const overview = document.getElementById('overview');
   overview.innerHTML = '';
   document.getElementById('community-list').innerHTML = '';
@@ -1205,24 +1236,41 @@ async function render(){
 }
 
 async function saveGroup(group){
-  const data = await loadData();
+  const status = document.querySelector('[data-status-group="' + group + '"]');
+
+  let data;
+  try{
+    data = await loadData();
+  }catch(e){
+    console.error('saveGroup(): 讀取資料失敗，中止儲存', e);
+    status.textContent = '✗ 讀取資料庫失敗，已中止儲存（請看上方錯誤訊息，稍後再試）';
+    status.style.color = 'var(--negative)';
+    setTimeout(() => status.textContent = '', 8000);
+    return;
+  }
 
   // 只讀取這個區塊自己的現值輸入框，不動另一個區塊的資料
   document.querySelectorAll('#' + group + '-list .metric-current-input').forEach(inp => {
     const val = parseFloat(inp.value);
     if (!isNaN(val)) data.values[inp.dataset.key] = val;
   });
-  // 只讀取這個區塊自己的現況/Action
-  data.notes[group + '-status'] = document.querySelector('textarea[data-notes="' + group + '-status"]').value;
-  data.notes[group + '-action'] = document.querySelector('textarea[data-notes="' + group + '-action"]').value;
+
+  // 現況/Action 是「這次更新」的紀錄用欄位：把剛剛輸入的內容記錄進歷史紀錄，
+  // 但畫面跟資料庫裡的「現況/Action」欄位送出後歸零，讓使用者下次重新填寫。
+  const typedStatus = document.querySelector('textarea[data-notes="' + group + '-status"]').value;
+  const typedAction = document.querySelector('textarea[data-notes="' + group + '-action"]').value;
+  data.notes[group + '-status'] = '';
+  data.notes[group + '-action'] = '';
 
   data.updatedAt = new Date().toISOString().slice(0,10);
   const ok = await saveData(data);
   if (ok){
-    await pushHistoryEntry(extractGroupValues(data.values, group), extractGroupNotes(data.notes, group));
+    await pushHistoryEntry(
+      extractGroupValues(data.values, group),
+      { [group + '-status']: typedStatus, [group + '-action']: typedAction }
+    );
   }
 
-  const status = document.querySelector('[data-status-group="' + group + '"]');
   status.textContent = ok ? '✓ 已儲存' : '✗ 儲存失敗，請看上方錯誤訊息';
   status.style.color = ok ? 'var(--positive)' : 'var(--negative)';
   setTimeout(() => status.textContent = '', ok ? 2000 : 6000);
