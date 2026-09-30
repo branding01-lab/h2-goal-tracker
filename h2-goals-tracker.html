@@ -489,6 +489,7 @@
     <button id="saveBtn">儲存更新</button>
     <button id="resetBtn">重設為初始基準</button>
     <button id="seedBtn" style="background:transparent;color:var(--search);border:1px solid var(--search-dim);font-size:13px;padding:10px 16px;border-radius:10px;cursor:pointer;font-family:var(--sans);">匯入 8–9 月歷史資料</button>
+    <button id="splitBtn" style="background:transparent;color:var(--community);border:1px solid var(--community-dim);font-size:13px;padding:10px 16px;border-radius:10px;cursor:pointer;font-family:var(--sans);">拆分舊有混合紀錄</button>
     <span id="saveStatus"></span>
   </div>
 
@@ -616,6 +617,20 @@ async function saveData(data){
 
 // ===== 歷史紀錄 =====
 
+function extractGroupValues(values, group){
+  const keys = METRICS_CONFIG.filter(m => m.group === group).map(m => m.key);
+  const out = {};
+  keys.forEach(k => { if (values[k] !== undefined) out[k] = values[k]; });
+  return out;
+}
+
+function extractGroupNotes(notes, group){
+  return {
+    [group + '-status']: (notes && notes[group + '-status']) || '',
+    [group + '-action']: (notes && notes[group + '-action']) || '',
+  };
+}
+
 async function pushHistoryEntry(values, notes){
   if (!historyRef) return;
   try{
@@ -640,8 +655,10 @@ async function loadHistory(){
         ts: val[id].ts,
         values: val[id].values || {},
         notes: val[id].notes || null,
-        lastEditedBy: val[id].lastEditedBy || null,
-        lastEditedAt: val[id].lastEditedAt || null,
+        lastEditedBy_community: val[id].lastEditedBy_community || null,
+        lastEditedAt_community: val[id].lastEditedAt_community || null,
+        lastEditedBy_search: val[id].lastEditedBy_search || null,
+        lastEditedAt_search: val[id].lastEditedAt_search || null,
       }))
       .sort((a,b) => new Date(a.ts) - new Date(b.ts));
   }catch(e){
@@ -708,8 +725,10 @@ function renderHistoryTable(group, history){
   }
   const rows = [...history].reverse().map(entry => {
     const isEditing = editingEntryId[group] === entry.id;
-    const editedTag = entry.lastEditedBy
-      ? `${escapeHtml(entry.lastEditedBy)}<div style="color:var(--muted);font-size:10px;margin-top:2px;">${fmtTs(entry.lastEditedAt || entry.ts)}</div>`
+    const editedBy = entry['lastEditedBy_' + group];
+    const editedAt = entry['lastEditedAt_' + group];
+    const editedTag = editedBy
+      ? `${escapeHtml(editedBy)}<div style="color:var(--muted);font-size:10px;margin-top:2px;">${fmtTs(editedAt || entry.ts)}</div>`
       : '<span class="history-note-empty">—</span>';
 
     if (isEditing){
@@ -804,13 +823,14 @@ function renderHistoryTable(group, history){
       if (!operator){ alert('操作逾時，請重新點擊編輯。'); return; }
 
       try{
-        await historyRef.child(id).update({
+        const updatePayload = {
           ts: updatedTs,
           values: updatedValues,
           notes: updatedNotes,
-          lastEditedBy: operator,
-          lastEditedAt: new Date().toISOString(),
-        });
+        };
+        updatePayload['lastEditedBy_' + group] = operator;
+        updatePayload['lastEditedAt_' + group] = new Date().toISOString();
+        await historyRef.child(id).update(updatePayload);
         await logAudit('edit', group, id, operator, { before: {ts:entry.ts, values:entry.values}, after: {ts:updatedTs, values:updatedValues} });
         editingEntryId[group] = null;
         editOperator[group] = null;
@@ -887,11 +907,16 @@ function renderChart(group, history){
   });
 }
 
+function filterHistoryForGroup(history, group){
+  const keys = METRICS_CONFIG.filter(m => m.group === group).map(m => m.key);
+  return history.filter(entry => keys.some(k => entry.values[k] !== undefined));
+}
+
 async function refreshHistoryAndCharts(){
   const history = await loadHistory();
   currentHistoryCache = history;
   ['community','search'].forEach(group => {
-    const groupHistory = history; // filtering by metric happens inside render fns
+    const groupHistory = filterHistoryForGroup(history, group);
     renderHistoryTable(group, groupHistory);
     renderChart(group, groupHistory);
   });
@@ -951,6 +976,86 @@ document.getElementById('seedBtn').addEventListener('click', async () => {
     console.error('匯入歷史資料失敗', e);
     alert('匯入失敗：' + (e && e.message ? e.message : e));
     btn.textContent = '匯入 8–9 月歷史資料';
+    btn.disabled = false;
+  }
+});
+
+// ===== 一次性：把舊有「同時包含社群增長＋搜尋市佔」的混合紀錄拆成兩筆獨立紀錄 =====
+document.getElementById('splitBtn').addEventListener('click', async () => {
+  if (!historyRef){
+    alert('尚未連接資料庫，無法執行。請先完成 Firebase 設定。');
+    return;
+  }
+  const operator = verifyOperator('這是資料庫結構調整操作，請輸入密碼以確認執行：');
+  if (!operator) return;
+
+  const btn = document.getElementById('splitBtn');
+  btn.disabled = true;
+  btn.textContent = '檢查並拆分中...';
+
+  try{
+    const snapshot = await historyRef.once('value');
+    const val = snapshot.val() || {};
+    const communityKeys = METRICS_CONFIG.filter(m => m.group === 'community').map(m => m.key);
+    const searchKeys = METRICS_CONFIG.filter(m => m.group === 'search').map(m => m.key);
+
+    let splitCount = 0;
+    const ids = Object.keys(val);
+
+    for (const id of ids){
+      const rec = val[id];
+      const values = rec.values || {};
+      const hasCommunity = communityKeys.some(k => values[k] !== undefined);
+      const hasSearch = searchKeys.some(k => values[k] !== undefined);
+      if (!(hasCommunity && hasSearch)) continue; // 不是混合紀錄，跳過
+
+      const communityValues = {};
+      communityKeys.forEach(k => { if (values[k] !== undefined) communityValues[k] = values[k]; });
+      const searchValues = {};
+      searchKeys.forEach(k => { if (values[k] !== undefined) searchValues[k] = values[k]; });
+
+      const notes = rec.notes || {};
+      const communityNotes = { 'community-status': notes['community-status'] || '', 'community-action': notes['community-action'] || '' };
+      const searchNotes = { 'search-status': notes['search-status'] || '', 'search-action': notes['search-action'] || '' };
+
+      // 舊版沒有分群組的編輯紀錄，盡量沿用到兩邊；新版分群組的欄位各自沿用。
+      const legacyEditedBy = rec.lastEditedBy || null;
+      const legacyEditedAt = rec.lastEditedAt || null;
+
+      const communityEntry = {
+        ts: rec.ts,
+        values: communityValues,
+        notes: communityNotes,
+      };
+      if (rec.lastEditedBy_community || legacyEditedBy){
+        communityEntry.lastEditedBy_community = rec.lastEditedBy_community || legacyEditedBy;
+        communityEntry.lastEditedAt_community = rec.lastEditedAt_community || legacyEditedAt;
+      }
+
+      const searchEntry = {
+        ts: rec.ts,
+        values: searchValues,
+        notes: searchNotes,
+      };
+      if (rec.lastEditedBy_search || legacyEditedBy){
+        searchEntry.lastEditedBy_search = rec.lastEditedBy_search || legacyEditedBy;
+        searchEntry.lastEditedAt_search = rec.lastEditedAt_search || legacyEditedAt;
+      }
+
+      await historyRef.child(id + '__community').set(communityEntry);
+      await historyRef.child(id + '__search').set(searchEntry);
+      await historyRef.child(id).remove();
+      splitCount++;
+    }
+
+    await logAudit('split-migration', 'both', null, operator, { splitCount });
+
+    btn.textContent = splitCount > 0 ? `✓ 已拆分 ${splitCount} 筆` : '✓ 沒有需要拆分的紀錄';
+    refreshHistoryAndCharts();
+  }catch(e){
+    console.error('拆分舊紀錄失敗', e);
+    alert('拆分失敗：' + (e && e.message ? e.message : e));
+    btn.textContent = '拆分舊有混合紀錄';
     btn.disabled = false;
   }
 });
@@ -1087,7 +1192,10 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   const today = new Date();
   data.updatedAt = today.toISOString().slice(0,10);
   const ok = await saveData(data);
-  if (ok) await pushHistoryEntry(data.values, data.notes);
+  if (ok){
+    await pushHistoryEntry(extractGroupValues(data.values, 'community'), extractGroupNotes(data.notes, 'community'));
+    await pushHistoryEntry(extractGroupValues(data.values, 'search'), extractGroupNotes(data.notes, 'search'));
+  }
   const status = document.getElementById('saveStatus');
   status.textContent = ok ? '✓ 已儲存' : '✗ 儲存失敗，請看上方錯誤訊息';
   status.style.color = ok ? 'var(--positive)' : 'var(--negative)';
