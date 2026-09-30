@@ -187,6 +187,24 @@
   }
   #saveStatus{font-size:12.5px; color:var(--positive); font-family:var(--mono);}
 
+  .section-save-row{
+    display:flex; align-items:center; gap:12px;
+    margin-top:18px;
+  }
+  .section-save-btn{
+    border:none;
+    font-weight:700;
+    font-size:14px;
+    padding:11px 22px;
+    border-radius:10px;
+    cursor:pointer;
+    font-family:var(--sans);
+  }
+  .section-save-btn.community{ background:var(--community); color:#2A1608; }
+  .section-save-btn.search{ background:var(--search); color:#062421; }
+  .section-save-btn:hover{ filter:brightness(1.08); }
+  .section-save-status{font-size:12.5px; font-family:var(--mono);}
+
   #configBanner{
     display:none;
     background:#2A1E14;
@@ -446,6 +464,10 @@
         <textarea data-notes="community-action" placeholder="列出接下來的行動方案..."></textarea>
       </div>
     </div>
+    <div class="section-save-row">
+      <button class="section-save-btn community" data-save-group="community">儲存更新</button>
+      <span class="section-save-status" data-status-group="community"></span>
+    </div>
     <button class="history-toggle" data-history-toggle="community">
       <span class="chevron">▾</span> 歷史紀錄
     </button>
@@ -477,6 +499,10 @@
         <textarea data-notes="search-action" placeholder="列出接下來的行動方案..."></textarea>
       </div>
     </div>
+    <div class="section-save-row">
+      <button class="section-save-btn search" data-save-group="search">儲存更新</button>
+      <span class="section-save-status" data-status-group="search"></span>
+    </div>
     <button class="history-toggle" data-history-toggle="search">
       <span class="chevron">▾</span> 歷史紀錄
     </button>
@@ -486,11 +512,9 @@
   </section>
 
   <div class="footer-actions">
-    <button id="saveBtn">儲存更新</button>
     <button id="resetBtn">重設為初始基準</button>
     <button id="seedBtn" style="background:transparent;color:var(--search);border:1px solid var(--search-dim);font-size:13px;padding:10px 16px;border-radius:10px;cursor:pointer;font-family:var(--sans);">匯入 8–9 月歷史資料</button>
     <button id="splitBtn" style="background:transparent;color:var(--community);border:1px solid var(--community-dim);font-size:13px;padding:10px 16px;border-radius:10px;cursor:pointer;font-family:var(--sans);">拆分舊有混合紀錄</button>
-    <span id="saveStatus"></span>
   </div>
 
 </div>
@@ -1180,28 +1204,35 @@ async function render(){
   });
 }
 
-document.getElementById('saveBtn').addEventListener('click', async () => {
+async function saveGroup(group){
   const data = await loadData();
-  document.querySelectorAll('.metric-current-input').forEach(inp => {
+
+  // 只讀取這個區塊自己的現值輸入框，不動另一個區塊的資料
+  document.querySelectorAll('#' + group + '-list .metric-current-input').forEach(inp => {
     const val = parseFloat(inp.value);
     if (!isNaN(val)) data.values[inp.dataset.key] = val;
   });
-  document.querySelectorAll('textarea[data-notes]').forEach(ta => {
-    data.notes[ta.dataset.notes] = ta.value;
-  });
-  const today = new Date();
-  data.updatedAt = today.toISOString().slice(0,10);
+  // 只讀取這個區塊自己的現況/Action
+  data.notes[group + '-status'] = document.querySelector('textarea[data-notes="' + group + '-status"]').value;
+  data.notes[group + '-action'] = document.querySelector('textarea[data-notes="' + group + '-action"]').value;
+
+  data.updatedAt = new Date().toISOString().slice(0,10);
   const ok = await saveData(data);
   if (ok){
-    await pushHistoryEntry(extractGroupValues(data.values, 'community'), extractGroupNotes(data.notes, 'community'));
-    await pushHistoryEntry(extractGroupValues(data.values, 'search'), extractGroupNotes(data.notes, 'search'));
+    await pushHistoryEntry(extractGroupValues(data.values, group), extractGroupNotes(data.notes, group));
   }
-  const status = document.getElementById('saveStatus');
+
+  const status = document.querySelector('[data-status-group="' + group + '"]');
   status.textContent = ok ? '✓ 已儲存' : '✗ 儲存失敗，請看上方錯誤訊息';
   status.style.color = ok ? 'var(--positive)' : 'var(--negative)';
   setTimeout(() => status.textContent = '', ok ? 2000 : 6000);
+
   render();
   refreshHistoryAndCharts();
+}
+
+document.querySelectorAll('[data-save-group]').forEach(btn => {
+  btn.addEventListener('click', () => saveGroup(btn.dataset.saveGroup));
 });
 
 document.getElementById('resetBtn').addEventListener('click', async () => {
