@@ -457,11 +457,11 @@
     <div class="notes-block">
       <div class="notes-field community">
         <label>現況</label>
-        <textarea data-notes="community-status" placeholder="說明目前社群增長的整體現況..."></textarea>
+        <textarea data-notes="community-status" autocomplete="off" placeholder="說明目前社群增長的整體現況..."></textarea>
       </div>
       <div class="notes-field community">
         <label>Action</label>
-        <textarea data-notes="community-action" placeholder="列出接下來的行動方案..."></textarea>
+        <textarea data-notes="community-action" autocomplete="off" placeholder="列出接下來的行動方案..."></textarea>
       </div>
     </div>
     <div class="section-save-row">
@@ -492,11 +492,11 @@
     <div class="notes-block">
       <div class="notes-field search">
         <label>現況</label>
-        <textarea data-notes="search-status" placeholder="說明目前搜尋市佔的整體現況..."></textarea>
+        <textarea data-notes="search-status" autocomplete="off" placeholder="說明目前搜尋市佔的整體現況..."></textarea>
       </div>
       <div class="notes-field search">
         <label>Action</label>
-        <textarea data-notes="search-action" placeholder="列出接下來的行動方案..."></textarea>
+        <textarea data-notes="search-action" autocomplete="off" placeholder="列出接下來的行動方案..."></textarea>
       </div>
     </div>
     <div class="section-save-row">
@@ -681,14 +681,16 @@ function extractGroupNotes(notes, group){
 }
 
 async function pushHistoryEntry(values, notes){
-  if (!historyRef) return;
+  if (!historyRef) return false;
   try{
     const entry = { ts: new Date().toISOString(), values: {...values} };
     if (notes) entry.notes = {...notes};
     await historyRef.push(entry);
+    return true;
   }catch(e){
     console.error('新增歷史紀錄失敗', e);
     showBanner('⚠️ 新增歷史紀錄失敗：<code>' + (e && e.message ? e.message : e) + '</code>');
+    return false;
   }
 }
 
@@ -1256,24 +1258,34 @@ async function saveGroup(group){
   });
 
   // 現況/Action 是「這次更新」的紀錄用欄位：把剛剛輸入的內容記錄進歷史紀錄，
-  // 但畫面跟資料庫裡的「現況/Action」欄位送出後歸零，讓使用者下次重新填寫。
-  const typedStatus = document.querySelector('textarea[data-notes="' + group + '-status"]').value;
-  const typedAction = document.querySelector('textarea[data-notes="' + group + '-action"]').value;
+  // 但畫面跟資料庫裡的「現況/Action」欄位在「確定儲存成功後」才歸零，
+  // 讓使用者下次重新填寫。萬一儲存失敗，畫面保留原本輸入的文字，不會遺失。
+  const statusEl = document.querySelector('textarea[data-notes="' + group + '-status"]');
+  const actionEl = document.querySelector('textarea[data-notes="' + group + '-action"]');
+  const typedStatus = statusEl.value;
+  const typedAction = actionEl.value;
   data.notes[group + '-status'] = '';
   data.notes[group + '-action'] = '';
 
   data.updatedAt = new Date().toISOString().slice(0,10);
   const ok = await saveData(data);
+  let historyOk = false;
   if (ok){
-    await pushHistoryEntry(
+    historyOk = await pushHistoryEntry(
       extractGroupValues(data.values, group),
       { [group + '-status']: typedStatus, [group + '-action']: typedAction }
     );
   }
+  if (ok && historyOk){
+    statusEl.value = '';
+    actionEl.value = '';
+  }
 
-  status.textContent = ok ? '✓ 已儲存' : '✗ 儲存失敗，請看上方錯誤訊息';
-  status.style.color = ok ? 'var(--positive)' : 'var(--negative)';
-  setTimeout(() => status.textContent = '', ok ? 2000 : 6000);
+  status.textContent = !ok
+    ? '✗ 儲存失敗，請看上方錯誤訊息'
+    : (historyOk ? '✓ 已儲存' : '✓ 現值已儲存，但歷史紀錄寫入失敗（現況/Action 保留未清空，可重新點擊儲存）');
+  status.style.color = (ok && historyOk) ? 'var(--positive)' : 'var(--negative)';
+  setTimeout(() => status.textContent = '', (ok && historyOk) ? 2000 : 8000);
 
   render();
   refreshHistoryAndCharts();
