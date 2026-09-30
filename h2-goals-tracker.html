@@ -709,10 +709,11 @@ function renderHistoryTable(group, history){
   const rows = [...history].reverse().map(entry => {
     const isEditing = editingEntryId[group] === entry.id;
     const editedTag = entry.lastEditedBy
-      ? `<div class="history-edited-tag">✎ ${escapeHtml(entry.lastEditedBy)} 編輯於 ${fmtTs(entry.lastEditedAt || entry.ts)}</div>`
-      : '';
+      ? `${escapeHtml(entry.lastEditedBy)}<div style="color:var(--muted);font-size:10px;margin-top:2px;">${fmtTs(entry.lastEditedAt || entry.ts)}</div>`
+      : '<span class="history-note-empty">—</span>';
 
     if (isEditing){
+      const dateVal = (entry.ts || '').slice(0,10);
       const valueCells = metrics.map(m => {
         const v = entry.values[m.key];
         return `<td><input type="number" step="any" class="history-edit-input" data-edit-key="${m.key}" value="${v !== undefined ? v : ''}"></td>`;
@@ -720,7 +721,7 @@ function renderHistoryTable(group, history){
       const statusVal = entry.notes && entry.notes[group + '-status'] ? entry.notes[group + '-status'] : '';
       const actionVal = entry.notes && entry.notes[group + '-action'] ? entry.notes[group + '-action'] : '';
       return `<tr data-id="${entry.id}">
-        <td>${fmtTs(entry.ts)}</td>
+        <td><input type="date" class="history-edit-input" data-edit-date value="${dateVal}" style="width:130px;"></td>
         ${valueCells}
         <td class="history-note-cell"><textarea class="history-edit-note" data-edit-note="status" rows="2">${escapeHtml(statusVal)}</textarea></td>
         <td class="history-note-cell"><textarea class="history-edit-note" data-edit-note="action" rows="2">${escapeHtml(actionVal)}</textarea></td>
@@ -728,6 +729,7 @@ function renderHistoryTable(group, history){
           <button class="history-save-btn" data-save-id="${entry.id}">儲存</button>
           <button class="history-cancel-btn" data-cancel-id="${entry.id}">取消</button>
         </td>
+        <td class="history-note-cell" style="font-size:11px;">${editedTag}</td>
       </tr>`;
     }
 
@@ -738,7 +740,7 @@ function renderHistoryTable(group, history){
     const statusText = entry.notes && entry.notes[group + '-status'] ? entry.notes[group + '-status'] : '';
     const actionText = entry.notes && entry.notes[group + '-action'] ? entry.notes[group + '-action'] : '';
     return `<tr data-id="${entry.id}">
-      <td>${fmtTs(entry.ts)}${editedTag}</td>
+      <td>${fmtTs(entry.ts)}</td>
       ${cells}
       <td class="history-note-cell">${statusText ? escapeHtml(statusText) : '<span class="history-note-empty">—</span>'}</td>
       <td class="history-note-cell">${actionText ? escapeHtml(actionText) : '<span class="history-note-empty">—</span>'}</td>
@@ -746,12 +748,13 @@ function renderHistoryTable(group, history){
         <button class="history-edit-btn" data-edit-id="${entry.id}">編輯</button>
         <button class="history-del-btn" data-delete-id="${entry.id}">刪除</button>
       </td>
+      <td class="history-note-cell" style="font-size:11px;">${editedTag}</td>
     </tr>`;
   }).join('');
   const headerCells = metrics.map(m => `<th>${m.label}</th>`).join('');
   wrap.innerHTML = `
     <table class="history-table">
-      <thead><tr><th>時間</th>${headerCells}<th>現況</th><th>Action</th><th></th></tr></thead>
+      <thead><tr><th>時間</th>${headerCells}<th>現況</th><th>Action</th><th></th><th>最後編輯</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -790,17 +793,25 @@ function renderHistoryTable(group, history){
       updatedNotes[group + '-status'] = row.querySelector('[data-edit-note="status"]').value;
       updatedNotes[group + '-action'] = row.querySelector('[data-edit-note="action"]').value;
 
+      const dateInput = row.querySelector('[data-edit-date]');
+      let updatedTs = entry.ts;
+      if (dateInput && dateInput.value){
+        const originalTime = (entry.ts || '').slice(11) || '12:00:00.000Z';
+        updatedTs = new Date(dateInput.value + 'T' + originalTime).toISOString();
+      }
+
       const operator = editOperator[group];
       if (!operator){ alert('操作逾時，請重新點擊編輯。'); return; }
 
       try{
         await historyRef.child(id).update({
+          ts: updatedTs,
           values: updatedValues,
           notes: updatedNotes,
           lastEditedBy: operator,
           lastEditedAt: new Date().toISOString(),
         });
-        await logAudit('edit', group, id, operator, { before: entry.values, after: updatedValues });
+        await logAudit('edit', group, id, operator, { before: {ts:entry.ts, values:entry.values}, after: {ts:updatedTs, values:updatedValues} });
         editingEntryId[group] = null;
         editOperator[group] = null;
         refreshHistoryAndCharts();
