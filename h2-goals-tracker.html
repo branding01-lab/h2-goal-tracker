@@ -330,6 +330,16 @@
     font-size:12.5px;
     font-family:var(--sans);
   }
+  table.history-table td.history-note-cell{
+    white-space:normal;
+    text-align:left;
+    font-family:var(--sans);
+    max-width:220px;
+    min-width:140px;
+    line-height:1.5;
+    color:var(--text);
+  }
+  .history-note-empty{color:var(--muted); font-family:var(--mono);}
 </style>
 </head>
 <body>
@@ -427,7 +437,7 @@ const HISTORY_KEY = 'h2-2026-history';
 // 刪除歷史紀錄時要求輸入的密碼。這不是真正的安全機制（程式碼是公開的，
 // 懂技術的人看原始碼就能找到），只是防止誤刪的一道確認關卡。
 // 想更換密碼，直接把下面雙引號中間的文字換掉即可。
-const DELETE_PASSWORD = "H2goal2026";
+const DELETE_PASSWORD = "sbmdelete";
 
 const METRICS_CONFIG = [
   { group:'community', key:'ig_followers', label:'Instagram 追蹤數', start:957, target:5000, defaultCurrent:3168, suffix:'', axis:'left', color:'#FF7A59' },
@@ -536,10 +546,11 @@ async function saveData(data){
 
 // ===== 歷史紀錄 =====
 
-async function pushHistoryEntry(values){
+async function pushHistoryEntry(values, notes){
   if (!historyRef) return;
   try{
     const entry = { ts: new Date().toISOString(), values: {...values} };
+    if (notes) entry.notes = {...notes};
     await historyRef.push(entry);
   }catch(e){
     console.error('新增歷史紀錄失敗', e);
@@ -554,7 +565,7 @@ async function loadHistory(){
     const val = snapshot.val();
     if (!val) return [];
     return Object.keys(val)
-      .map(id => ({ id, ts: val[id].ts, values: val[id].values || {} }))
+      .map(id => ({ id, ts: val[id].ts, values: val[id].values || {}, notes: val[id].notes || null }))
       .sort((a,b) => new Date(a.ts) - new Date(b.ts));
   }catch(e){
     console.error('讀取歷史紀錄失敗', e);
@@ -598,16 +609,20 @@ function renderHistoryTable(group, history){
       const v = entry.values[m.key];
       return `<td>${v === undefined ? '—' : fmt(v) + m.suffix}</td>`;
     }).join('');
+    const statusText = entry.notes && entry.notes[group + '-status'] ? entry.notes[group + '-status'] : '';
+    const actionText = entry.notes && entry.notes[group + '-action'] ? entry.notes[group + '-action'] : '';
     return `<tr data-id="${entry.id}">
       <td>${fmtTs(entry.ts)}</td>
       ${cells}
+      <td class="history-note-cell">${statusText ? escapeHtml(statusText) : '<span class="history-note-empty">—</span>'}</td>
+      <td class="history-note-cell">${actionText ? escapeHtml(actionText) : '<span class="history-note-empty">—</span>'}</td>
       <td><button class="history-del-btn" data-delete-id="${entry.id}" data-delete-group="${group}">刪除</button></td>
     </tr>`;
   }).join('');
   const headerCells = metrics.map(m => `<th>${m.label}</th>`).join('');
   wrap.innerHTML = `
     <table class="history-table">
-      <thead><tr><th>時間</th>${headerCells}<th></th></tr></thead>
+      <thead><tr><th>時間</th>${headerCells}<th>現況</th><th>Action</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -621,6 +636,12 @@ function renderHistoryTable(group, history){
       }
     });
   });
+}
+
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 let chartInstances = { community:null, search:null };
@@ -871,7 +892,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   const today = new Date();
   data.updatedAt = today.toISOString().slice(0,10);
   const ok = await saveData(data);
-  if (ok) await pushHistoryEntry(data.values);
+  if (ok) await pushHistoryEntry(data.values, data.notes);
   const status = document.getElementById('saveStatus');
   status.textContent = ok ? '✓ 已儲存' : '✗ 儲存失敗，請看上方錯誤訊息';
   status.style.color = ok ? 'var(--positive)' : 'var(--negative)';
