@@ -323,6 +323,70 @@
     font-family:var(--sans);
   }
   .history-del-btn:hover{background:rgba(248,113,113,.12);}
+  .history-edit-btn{
+    background:transparent;
+    border:1px solid var(--border);
+    color:var(--search);
+    font-size:11px;
+    padding:4px 9px;
+    border-radius:7px;
+    cursor:pointer;
+    font-family:var(--sans);
+    margin-right:6px;
+  }
+  .history-edit-btn:hover{background:rgba(69,217,198,.12);}
+  .history-save-btn{
+    background:var(--search);
+    border:none;
+    color:#062421;
+    font-size:11px;
+    font-weight:700;
+    padding:5px 10px;
+    border-radius:7px;
+    cursor:pointer;
+    font-family:var(--sans);
+    margin-right:6px;
+  }
+  .history-cancel-btn{
+    background:transparent;
+    border:1px solid var(--border);
+    color:var(--muted);
+    font-size:11px;
+    padding:5px 10px;
+    border-radius:7px;
+    cursor:pointer;
+    font-family:var(--sans);
+  }
+  .history-edit-input{
+    width:80px;
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:12px;
+    padding:5px 7px;
+    border-radius:6px;
+    text-align:right;
+  }
+  .history-edit-note{
+    width:100%;
+    min-width:140px;
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:12px;
+    padding:6px 8px;
+    border-radius:6px;
+    resize:vertical;
+  }
+  .history-edited-tag{
+    font-size:10px;
+    color:var(--muted);
+    font-family:var(--sans);
+    margin-top:3px;
+    white-space:normal;
+  }
   .history-empty{
     padding:18px;
     text-align:center;
@@ -434,10 +498,14 @@
 const STORAGE_KEY = 'h2-2026-metrics';
 const HISTORY_KEY = 'h2-2026-history';
 
-// 刪除歷史紀錄時要求輸入的密碼。這不是真正的安全機制（程式碼是公開的，
-// 懂技術的人看原始碼就能找到），只是防止誤刪的一道確認關卡。
-// 想更換密碼，直接把下面雙引號中間的文字換掉即可。
-const DELETE_PASSWORD = "sbmdelete";
+// 刪除／編輯歷史紀錄時要求輸入的密碼。這不是真正的安全機制（程式碼是公開的，
+// 懂技術的人看原始碼就能找到），只是防止誤刪/誤改的一道確認關卡，
+// 並記錄是哪一組密碼（即哪個人）執行了這次操作。
+const OPERATOR_PASSWORDS = {
+  'sbm-sharon': 'Sharon',
+  'sbm-angela': 'Angela',
+  'sbm-calvin': 'Calvin',
+};
 
 const METRICS_CONFIG = [
   { group:'community', key:'ig_followers', label:'Instagram 追蹤數', start:957, target:5000, defaultCurrent:3168, suffix:'', axis:'left', color:'#FF7A59' },
@@ -483,12 +551,14 @@ function showBanner(html){
 const CONFIG_IS_SET = !JSON.stringify(firebaseConfig).includes('YOUR_');
 let dbRef = null;
 let historyRef = null;
+let auditRef = null;
 
 if (CONFIG_IS_SET){
   try{
     firebase.initializeApp(firebaseConfig);
     dbRef = firebase.database().ref(STORAGE_KEY);
     historyRef = firebase.database().ref(HISTORY_KEY);
+    auditRef = firebase.database().ref('h2-2026-audit');
   }catch(e){
     console.error('Firebase 初始化失敗', e);
     showBanner('⚠️ Firebase 初始化失敗：<code>' + (e && e.message ? e.message : e) + '</code>　請把這段文字截圖給協助你的人。');
@@ -565,7 +635,14 @@ async function loadHistory(){
     const val = snapshot.val();
     if (!val) return [];
     return Object.keys(val)
-      .map(id => ({ id, ts: val[id].ts, values: val[id].values || {}, notes: val[id].notes || null }))
+      .map(id => ({
+        id,
+        ts: val[id].ts,
+        values: val[id].values || {},
+        notes: val[id].notes || null,
+        lastEditedBy: val[id].lastEditedBy || null,
+        lastEditedAt: val[id].lastEditedAt || null,
+      }))
       .sort((a,b) => new Date(a.ts) - new Date(b.ts));
   }catch(e){
     console.error('讀取歷史紀錄失敗', e);
@@ -573,15 +650,36 @@ async function loadHistory(){
   }
 }
 
-async function deleteHistoryEntry(id){
-  const pwd = window.prompt('請輸入刪除密碼以確認刪除這筆歷史紀錄：');
-  if (pwd === null) return false; // cancelled
-  if (pwd !== DELETE_PASSWORD){
-    alert('密碼錯誤，未刪除。');
-    return false;
+function verifyOperator(promptMessage){
+  const pwd = window.prompt(promptMessage);
+  if (pwd === null) return null; // 使用者取消
+  const name = OPERATOR_PASSWORDS[pwd.trim()];
+  if (!name){
+    alert('密碼錯誤，操作取消。');
+    return null;
   }
+  return name;
+}
+
+async function logAudit(action, group, entryId, operator, detail){
+  if (!auditRef) return;
+  try{
+    await auditRef.push({
+      action, group, entryId, operator,
+      ts: new Date().toISOString(),
+      detail: detail || null,
+    });
+  }catch(e){
+    console.error('寫入操作紀錄失敗', e);
+  }
+}
+
+async function deleteHistoryEntry(id, group, entrySnapshot){
+  const operator = verifyOperator('請輸入密碼以確認刪除這筆歷史紀錄：');
+  if (!operator) return false;
   try{
     await historyRef.child(id).remove();
+    await logAudit('delete', group, id, operator, entrySnapshot ? { values: entrySnapshot.values, notes: entrySnapshot.notes } : null);
     return true;
   }catch(e){
     console.error('刪除歷史紀錄失敗', e);
@@ -597,6 +695,10 @@ function fmtTs(iso){
   }catch(e){ return iso; }
 }
 
+let currentHistoryCache = [];
+let editingEntryId = { community:null, search:null };
+let editOperator = { community:null, search:null };
+
 function renderHistoryTable(group, history){
   const wrap = document.getElementById('history-table-' + group);
   const metrics = METRICS_CONFIG.filter(m => m.group === group);
@@ -605,6 +707,30 @@ function renderHistoryTable(group, history){
     return;
   }
   const rows = [...history].reverse().map(entry => {
+    const isEditing = editingEntryId[group] === entry.id;
+    const editedTag = entry.lastEditedBy
+      ? `<div class="history-edited-tag">✎ ${escapeHtml(entry.lastEditedBy)} 編輯於 ${fmtTs(entry.lastEditedAt || entry.ts)}</div>`
+      : '';
+
+    if (isEditing){
+      const valueCells = metrics.map(m => {
+        const v = entry.values[m.key];
+        return `<td><input type="number" step="any" class="history-edit-input" data-edit-key="${m.key}" value="${v !== undefined ? v : ''}"></td>`;
+      }).join('');
+      const statusVal = entry.notes && entry.notes[group + '-status'] ? entry.notes[group + '-status'] : '';
+      const actionVal = entry.notes && entry.notes[group + '-action'] ? entry.notes[group + '-action'] : '';
+      return `<tr data-id="${entry.id}">
+        <td>${fmtTs(entry.ts)}</td>
+        ${valueCells}
+        <td class="history-note-cell"><textarea class="history-edit-note" data-edit-note="status" rows="2">${escapeHtml(statusVal)}</textarea></td>
+        <td class="history-note-cell"><textarea class="history-edit-note" data-edit-note="action" rows="2">${escapeHtml(actionVal)}</textarea></td>
+        <td style="white-space:nowrap;">
+          <button class="history-save-btn" data-save-id="${entry.id}">儲存</button>
+          <button class="history-cancel-btn" data-cancel-id="${entry.id}">取消</button>
+        </td>
+      </tr>`;
+    }
+
     const cells = metrics.map(m => {
       const v = entry.values[m.key];
       return `<td>${v === undefined ? '—' : fmt(v) + m.suffix}</td>`;
@@ -612,11 +738,14 @@ function renderHistoryTable(group, history){
     const statusText = entry.notes && entry.notes[group + '-status'] ? entry.notes[group + '-status'] : '';
     const actionText = entry.notes && entry.notes[group + '-action'] ? entry.notes[group + '-action'] : '';
     return `<tr data-id="${entry.id}">
-      <td>${fmtTs(entry.ts)}</td>
+      <td>${fmtTs(entry.ts)}${editedTag}</td>
       ${cells}
       <td class="history-note-cell">${statusText ? escapeHtml(statusText) : '<span class="history-note-empty">—</span>'}</td>
       <td class="history-note-cell">${actionText ? escapeHtml(actionText) : '<span class="history-note-empty">—</span>'}</td>
-      <td><button class="history-del-btn" data-delete-id="${entry.id}" data-delete-group="${group}">刪除</button></td>
+      <td style="white-space:nowrap;">
+        <button class="history-edit-btn" data-edit-id="${entry.id}">編輯</button>
+        <button class="history-del-btn" data-delete-id="${entry.id}">刪除</button>
+      </td>
     </tr>`;
   }).join('');
   const headerCells = metrics.map(m => `<th>${m.label}</th>`).join('');
@@ -626,14 +755,68 @@ function renderHistoryTable(group, history){
       <tbody>${rows}</tbody>
     </table>
   `;
+
+  wrap.querySelectorAll('[data-edit-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const operator = verifyOperator('請輸入密碼以編輯這筆歷史紀錄：');
+      if (!operator) return;
+      editOperator[group] = operator;
+      editingEntryId[group] = btn.dataset.editId;
+      renderHistoryTable(group, currentHistoryCache);
+    });
+  });
+
+  wrap.querySelectorAll('[data-cancel-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      editingEntryId[group] = null;
+      editOperator[group] = null;
+      renderHistoryTable(group, currentHistoryCache);
+    });
+  });
+
+  wrap.querySelectorAll('[data-save-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.saveId;
+      const row = btn.closest('tr');
+      const entry = currentHistoryCache.find(h => h.id === id);
+      if (!entry) return;
+
+      const updatedValues = {...entry.values};
+      row.querySelectorAll('[data-edit-key]').forEach(inp => {
+        const val = parseFloat(inp.value);
+        if (!isNaN(val)) updatedValues[inp.dataset.editKey] = val;
+      });
+      const updatedNotes = {...(entry.notes || {})};
+      updatedNotes[group + '-status'] = row.querySelector('[data-edit-note="status"]').value;
+      updatedNotes[group + '-action'] = row.querySelector('[data-edit-note="action"]').value;
+
+      const operator = editOperator[group];
+      if (!operator){ alert('操作逾時，請重新點擊編輯。'); return; }
+
+      try{
+        await historyRef.child(id).update({
+          values: updatedValues,
+          notes: updatedNotes,
+          lastEditedBy: operator,
+          lastEditedAt: new Date().toISOString(),
+        });
+        await logAudit('edit', group, id, operator, { before: entry.values, after: updatedValues });
+        editingEntryId[group] = null;
+        editOperator[group] = null;
+        refreshHistoryAndCharts();
+      }catch(e){
+        console.error('編輯歷史紀錄失敗', e);
+        alert('編輯失敗：' + (e && e.message ? e.message : e));
+      }
+    });
+  });
+
   wrap.querySelectorAll('[data-delete-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const ok = await deleteHistoryEntry(btn.dataset.deleteId);
-      if (ok){
-        const history = await loadHistory();
-        renderHistoryTable(group, history);
-        renderChart(group, history);
-      }
+      const id = btn.dataset.deleteId;
+      const entry = currentHistoryCache.find(h => h.id === id);
+      const ok = await deleteHistoryEntry(id, group, entry);
+      if (ok) refreshHistoryAndCharts();
     });
   });
 }
@@ -695,6 +878,7 @@ function renderChart(group, history){
 
 async function refreshHistoryAndCharts(){
   const history = await loadHistory();
+  currentHistoryCache = history;
   ['community','search'].forEach(group => {
     const groupHistory = history; // filtering by metric happens inside render fns
     renderHistoryTable(group, groupHistory);
