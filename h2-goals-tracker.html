@@ -926,16 +926,18 @@ function renderChart(group, history){
   wrapEl.style.display = 'block';
   emptyEl.style.display = 'none';
 
-  const labels = history.map(h => fmtTs(h.ts));
+  // 第一個點固定是「起始」基準值（例如 IG 追蹤數 957、YT 訂閱數 1770），之後才接歷史紀錄
+  const labels = ['起始', ...history.map(h => fmtTs(h.ts))];
   const datasets = metrics.map(m => ({
     label: m.label + (m.suffix ? ` (${m.suffix})` : ''),
-    data: history.map(h => h.values[m.key] !== undefined ? h.values[m.key] : null),
+    data: [m.start, ...history.map(h => h.values[m.key] !== undefined ? h.values[m.key] : null)],
     borderColor: m.color,
     backgroundColor: m.color,
     yAxisID: m.axis === 'right' ? 'y1' : 'y',
     tension: 0.3,
     spanGaps: true,
-    pointRadius: 3,
+    pointRadius: (ctx) => ctx.dataIndex === 0 ? 6 : 3,
+    pointStyle: (ctx) => ctx.dataIndex === 0 ? 'rectRot' : 'circle',
   }));
 
   if (chartInstances[group]) chartInstances[group].destroy();
